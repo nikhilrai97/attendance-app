@@ -32,19 +32,10 @@ export default function History() {
         return;
       }
 
-      const res = await fetch(`${API_URL}/attendance/${userId}`);
+      const res = await fetch(`${API_URL}/attendance/calendar/${userId}?days=90`);
       const records = await res.json();
 
-      if (Array.isArray(records)) {
-        const sorted = records.sort(
-          (a, b) =>
-            new Date(b.check_in).getTime() - new Date(a.check_in).getTime()
-        );
-
-        setData(sorted);
-      } else {
-        setData([]);
-      }
+      setData(Array.isArray(records) ? records : []);
     } catch (err) {
       console.log("History error:", err);
     } finally {
@@ -142,46 +133,40 @@ export default function History() {
   };
 
   const filteredData = useMemo(() => {
-    const dateMap = new Map<string, any>();
-
-    data
-      .filter((item) => item.check_in && withinFilter(item.check_in))
-      .forEach((item) => {
-        const key = new Date(item.check_in).toDateString();
-        const existing = dateMap.get(key);
-
-        if (!existing) {
-          dateMap.set(key, item);
-          return;
-        }
-
-        const existingHasOut = Boolean(existing.check_out);
-        const itemHasOut = Boolean(item.check_out);
-
-        if (itemHasOut && !existingHasOut) {
-          dateMap.set(key, item);
-          return;
-        }
-
-        if (itemHasOut === existingHasOut) {
-          const itemTime = new Date(item.check_in).getTime();
-          const existingTime = new Date(existing.check_in).getTime();
-
-          if (itemTime > existingTime) {
-            dateMap.set(key, item);
-          }
-        }
-      });
-
-    return Array.from(dateMap.values()).sort(
-      (a, b) =>
-        new Date(b.check_in).getTime() - new Date(a.check_in).getTime()
-    );
+    return data
+      .filter((item) => item.date && withinFilter(item.date))
+      .sort(
+        (a, b) =>
+          new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
   }, [data, filter]);
 
+  const getDisplayStatus = (item: any) => {
+    if (item.status === "completed") return "Present";
+    if (item.status === "leave") return "Leave";
+    if (item.status === "holiday") return "Holiday";
+    return "Absent";
+  };
+
+  const getStatusColor = (status: string) => {
+    if (status === "completed") return "#22c55e";
+    if (status === "leave") return "#38bdf8";
+    if (status === "holiday") return "#a78bfa";
+    return "#ef4444";
+  };
+
+  const getStatusIcon = (status: string) => {
+    if (status === "completed") return "checkmark-circle";
+    if (status === "leave") return "document-text";
+    if (status === "holiday") return "calendar-clear";
+    return "close-circle";
+  };
+
   const stats = useMemo(() => {
-    const presentDays = filteredData.length;
-    const completed = filteredData.filter((item) => item.check_out).length;
+    const present = filteredData.filter((item) => item.status === "completed").length;
+    const absent = filteredData.filter((item) => item.status === "absent").length;
+    const leave = filteredData.filter((item) => item.status === "leave").length;
+    const holiday = filteredData.filter((item) => item.status === "holiday").length;
 
     const totalMs = filteredData.reduce(
       (sum, item) => sum + getDiffMs(item.check_in, item.check_out),
@@ -191,8 +176,10 @@ export default function History() {
     const totalHours = Math.floor(totalMs / 3600000);
 
     return {
-      presentDays,
-      completed,
+      present,
+      absent,
+      leave,
+      holiday,
       totalHours,
     };
   }, [filteredData]);
@@ -219,14 +206,16 @@ export default function History() {
   };
 
   const renderItem = ({ item }: any) => {
-    const completed = Boolean(item.check_out);
+    const status = item.status || "absent";
+    const color = getStatusColor(status);
+    const icon = getStatusIcon(status);
 
     return (
       <View style={styles.timelineRow}>
         <View style={styles.timelineLeft}>
           <View style={styles.datePill}>
-            <Text style={styles.dateDay}>{formatDay(item.check_in)}</Text>
-            <Text style={styles.dateMonth}>{formatMonth(item.check_in)}</Text>
+            <Text style={styles.dateDay}>{formatDay(item.date)}</Text>
+            <Text style={styles.dateMonth}>{formatMonth(item.date)}</Text>
           </View>
 
           <View style={styles.timelineLine} />
@@ -235,7 +224,7 @@ export default function History() {
         <View style={styles.card}>
           <View style={styles.cardTop}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.date}>{formatDate(item.check_in)}</Text>
+              <Text style={styles.date}>{formatDate(item.date)}</Text>
               <Text style={styles.subText}>
                 {formatTime(item.check_in)} - {formatTime(item.check_out)}
               </Text>
@@ -244,22 +233,22 @@ export default function History() {
             <View
               style={[
                 styles.badge,
-                { backgroundColor: completed ? "#dcfce7" : "#fef3c7" },
+                { backgroundColor: `${color}22` },
               ]}
             >
               <Ionicons
-                name={completed ? "checkmark-circle" : "time"}
+                name={icon}
                 size={16}
-                color={completed ? "#16a34a" : "#d97706"}
+                color={color}
               />
 
               <Text
                 style={[
                   styles.badgeText,
-                  { color: completed ? "#166534" : "#92400e" },
+                  { color },
                 ]}
               >
-                {completed ? "Completed" : "Open"}
+                {getDisplayStatus(item)}
               </Text>
             </View>
           </View>
@@ -285,6 +274,10 @@ export default function History() {
               </Text>
             </View>
           </View>
+
+          <Text style={[styles.message, { color }]}>
+            {item.message || getDisplayStatus(item)}
+          </Text>
         </View>
       </View>
     );
@@ -306,18 +299,35 @@ export default function History() {
 
       <View style={styles.statsRow}>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{stats.presentDays}</Text>
-          <Text style={styles.statLabel}>Present Days</Text>
+          <Text style={styles.statNumber}>{stats.present}</Text>
+          <Text style={styles.statLabel}>Present</Text>
         </View>
 
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{stats.completed}</Text>
-          <Text style={styles.statLabel}>Completed</Text>
+          <Text style={styles.statNumber}>{stats.absent}</Text>
+          <Text style={styles.statLabel}>Absent</Text>
         </View>
 
         <View style={styles.statCard}>
           <Text style={styles.statNumber}>{stats.totalHours}h</Text>
-          <Text style={styles.statLabel}>Total Hours</Text>
+          <Text style={styles.statLabel}>Hours</Text>
+        </View>
+      </View>
+
+      <View style={styles.statsRow}>
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{stats.leave}</Text>
+          <Text style={styles.statLabel}>Leave</Text>
+        </View>
+
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{stats.holiday}</Text>
+          <Text style={styles.statLabel}>Holiday</Text>
+        </View>
+
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{filteredData.length}</Text>
+          <Text style={styles.statLabel}>Days</Text>
         </View>
       </View>
 
@@ -338,7 +348,7 @@ export default function History() {
     <View style={styles.container}>
       <FlatList
         data={filteredData}
-        keyExtractor={(item, index) => item.id || item._id || String(index)}
+        keyExtractor={(item, index) => item.id || item.date || String(index)}
         renderItem={renderItem}
         ListHeaderComponent={ListHeader}
         refreshControl={
@@ -349,7 +359,7 @@ export default function History() {
             <Ionicons name="calendar-clear-outline" size={34} color="#64748b" />
             <Text style={styles.emptyTitle}>No record found</Text>
             <Text style={styles.emptyText}>
-              Is filter ke andar attendance record nahi mila.
+              No attendance record found for this filter.
             </Text>
           </View>
         }
@@ -435,6 +445,7 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: "row",
     gap: 10,
+    marginBottom: 10,
   },
 
   statCard: {
@@ -460,7 +471,7 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 18,
     fontWeight: "bold",
-    marginTop: 24,
+    marginTop: 14,
     marginBottom: 12,
   },
 
@@ -568,6 +579,12 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginTop: 3,
     fontSize: 13,
+  },
+
+  message: {
+    marginTop: 10,
+    fontWeight: "bold",
+    fontSize: 12,
   },
 
   emptyBox: {
