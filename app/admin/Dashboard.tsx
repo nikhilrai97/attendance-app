@@ -5,8 +5,8 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  ScrollView,
   RefreshControl,
+  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -28,6 +28,7 @@ export default function Dashboard() {
       setStats(data);
     } catch (error) {
       console.log("Admin dashboard error:", error);
+      setStats(null);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -46,8 +47,16 @@ export default function Dashboard() {
   const totalEmployees = Number(stats?.total_employees || 0);
   const presentToday = Number(stats?.present_today || 0);
   const absentToday = Number(stats?.absent_today || 0);
+  const leaveToday = Number(stats?.leave_today || 0);
+  const holidayToday = Boolean(stats?.holiday_today);
+
   const attendanceRate =
     totalEmployees > 0 ? Math.round((presentToday / totalEmployees) * 100) : 0;
+
+  const todayLabel = holidayToday ? "Holiday Today" : "Today Attendance";
+  const todaySub = holidayToday
+    ? "Attendance is not counted on holiday"
+    : `${presentToday} present, ${absentToday} absent`;
 
   const StatCard = ({
     label,
@@ -116,6 +125,7 @@ export default function Dashboard() {
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
+      showsVerticalScrollIndicator={false}
     >
       <View style={styles.header}>
         <View>
@@ -130,15 +140,19 @@ export default function Dashboard() {
 
       <View style={styles.heroCard}>
         <View>
-          <Text style={styles.heroLabel}>Today Attendance</Text>
-          <Text style={styles.heroNumber}>{attendanceRate}%</Text>
-          <Text style={styles.heroSub}>
-            {presentToday} present out of {totalEmployees}
+          <Text style={styles.heroLabel}>{todayLabel}</Text>
+          <Text style={styles.heroNumber}>
+            {holidayToday ? "OFF" : `${attendanceRate}%`}
           </Text>
+          <Text style={styles.heroSub}>{todaySub}</Text>
         </View>
 
         <View style={styles.heroCircle}>
-          <Ionicons name="shield-checkmark-outline" size={34} color="#052e16" />
+          <Ionicons
+            name={holidayToday ? "calendar-clear-outline" : "shield-checkmark-outline"}
+            size={34}
+            color="#052e16"
+          />
         </View>
       </View>
 
@@ -162,6 +176,29 @@ export default function Dashboard() {
           value={absentToday}
           icon="close-circle-outline"
           color="#ef4444"
+        />
+      </View>
+
+      <View style={styles.statsRow}>
+        <StatCard
+          label="On Leave"
+          value={leaveToday}
+          icon="document-text-outline"
+          color="#f59e0b"
+        />
+
+        <StatCard
+          label="Holiday"
+          value={holidayToday ? "Yes" : "No"}
+          icon="calendar-clear-outline"
+          color="#a78bfa"
+        />
+
+        <StatCard
+          label="Rate"
+          value={`${attendanceRate}%`}
+          icon="analytics-outline"
+          color="#22c55e"
         />
       </View>
 
@@ -204,6 +241,22 @@ export default function Dashboard() {
       />
 
       <ActionCard
+        title="Leave Requests"
+        subtitle="Approve or reject employee leaves"
+        icon="reader-outline"
+        route="/admin/Leaves"
+        color="#fb7185"
+      />
+
+      <ActionCard
+        title="Holidays"
+        subtitle="Manage company holiday calendar"
+        icon="calendar-clear-outline"
+        route="/admin/Holidays"
+        color="#38bdf8"
+      />
+
+      <ActionCard
         title="Attendance Settings"
         subtitle="Duplicate punch, working hours and rules"
         icon="settings-outline"
@@ -216,7 +269,7 @@ export default function Dashboard() {
         subtitle="View admin account details"
         icon="person-outline"
         route="/main/Profile"
-        color="#fb7185"
+        color="#22c55e"
       />
     </ScrollView>
   );
