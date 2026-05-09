@@ -420,7 +420,11 @@ export default function ReportsScreen() {
                 <View style={styles.row}>
                   <MiniBox label="Present" value={presentDays} color="#22c55e" />
                   <MiniBox label="Absent" value={absentDays} color="#ef4444" />
-                  <MiniBox label="Incomplete" value={incompleteDays} color="#f59e0b" />
+                  <MiniBox
+                    label="Incomplete"
+                    value={incompleteDays}
+                    color="#f59e0b"
+                  />
                 </View>
 
                 <View style={styles.row}>
@@ -722,4 +726,67 @@ const styles = StyleSheet.create({
 
   row: {
     flexDirection: "row",
-    marginTop: 
+    marginTop: 14,
+    gap: 8,
+  },
+
+  statBox: {
+    flex: 1,
+    backgroundColor: "#0f172a",
+    borderRadius: 12,
+    padding: 10,
+    alignItems: "center",
+  },
+
+  boxNumber: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+
+  boxLabel: {
+    fontSize: 11,
+    color: "#94a3b8",
+    marginTop: 3,
+    textAlign: "center",
+  },
+
+  timeBox: {
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#334155",
+    paddingTop: 10,
+    gap: 5,
+  },
+
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+
+  timeText: {
+    color: "#cbd5e1",
+    fontSize: 12,
+  },
+
+  emptyBox: {
+    backgroundColor: "#1e293b",
+    padding: 24,
+    borderRadius: 18,
+    alignItems: "center",
+  },
+
+  emptyTitle: {
+    color: "#fff",
+    fontWeight: "bold",
+    marginTop: 10,
+    fontSize: 16,
+  },
+
+  emptyText: {
+    color: "#94a3b8",
+    marginTop: 4,
+    textAlign: "center",
+  },
+});
