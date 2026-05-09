@@ -322,6 +322,12 @@ export default function Dashboard() {
         icon="document-text-outline"
         route="/user/leave"
       />
+      <ActionCard
+       title="Attendance Regulations"
+       subtitle="View attendance rules and policies"
+       icon="shield-checkmark-outline"
+       route="/user/regulations"
+      />
 
       <Text style={styles.sectionTitle}>Recent Days</Text>
 
