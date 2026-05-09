@@ -9,10 +9,11 @@ import {
   RefreshControl,
   TextInput,
   Platform,
-  Share,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import ExcelJS from "exceljs";
 
 const API_URL = "https://niktech-backend.onrender.com";
 
@@ -23,6 +24,7 @@ export default function ReportsScreen() {
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [range, setRange] = useState<RangeType>(30);
   const [search, setSearch] = useState("");
 
@@ -99,77 +101,236 @@ export default function ReportsScreen() {
     });
   };
 
-  const downloadCsv = (rows: any[][], fileName: string) => {
-    const csv = rows
-      .map((row) =>
-        row
-          .map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`)
-          .join(",")
-      )
-      .join("\n");
-
-    if (Platform.OS === "web") {
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      link.click();
-
-      URL.revokeObjectURL(url);
-      return;
+  const formatStatus = (day: any) => {
+    if (day.status === "completed") return "Present";
+    if (day.status === "leave") return "Leave";
+    if (day.status === "holiday") return "Holiday";
+    if (day.status === "absent" && day.check_in && !day.check_out) {
+      return "Incomplete";
     }
 
-    Share.share({
-      title: "Attendance Report",
-      message: csv,
+    return "Absent";
+  };
+
+  const getExcelStatusColor = (status: string) => {
+    const value = status.toLowerCase();
+
+    if (value.includes("present")) return "FFDCFCE7";
+    if (value.includes("absent")) return "FFFEE2E2";
+    if (value.includes("incomplete")) return "FFFEF3C7";
+    if (value.includes("leave")) return "FFE0F2FE";
+    if (value.includes("holiday")) return "FFF3E8FF";
+
+    return "FFFFFFFF";
+  };
+
+  const styleHeader = (sheet: ExcelJS.Worksheet) => {
+    const header = sheet.getRow(1);
+    header.height = 25;
+
+    header.eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FF0F172A" },
+      };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFCBD5E1" } },
+        left: { style: "thin", color: { argb: "FFCBD5E1" } },
+        bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
+        right: { style: "thin", color: { argb: "FFCBD5E1" } },
+      };
     });
   };
 
-  const exportCSV = async () => {
+  const styleCellBorder = (cell: ExcelJS.Cell) => {
+    cell.alignment = { vertical: "middle", horizontal: "center" };
+    cell.border = {
+      top: { style: "thin", color: { argb: "FFE5E7EB" } },
+      left: { style: "thin", color: { argb: "FFE5E7EB" } },
+      bottom: { style: "thin", color: { argb: "FFE5E7EB" } },
+      right: { style: "thin", color: { argb: "FFE5E7EB" } },
+    };
+  };
+
+  const exportExcel = async () => {
     try {
-      const reportRes = await fetch(
+      setExporting(true);
+
+      if (Platform.OS !== "web") {
+        Alert.alert("Export", "Excel download is available on web build.");
+        return;
+      }
+
+      const usersRes = await fetch(`${API_URL}/users`);
+      const usersData = await usersRes.json();
+      const users = Array.isArray(usersData) ? usersData : [];
+
+      const summaryRes = await fetch(
         `${API_URL}/reports/attendance-summary?days=30`
       );
-      const reportData = await reportRes.json();
+      const summaryData = await summaryRes.json();
+      const summaryRows = Array.isArray(summaryData) ? summaryData : [];
 
-      const exportReports = Array.isArray(reportData) ? reportData : [];
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = "Niktech Secure";
+      workbook.created = new Date();
 
-      const rows = [
-        [
-          "Name",
-          "Fingerprint ID",
-          "Present Days",
-          "Absent Days",
-          "Incomplete Days",
-          "Leave Days",
-          "Holiday Days",
-          "Working Days",
-          "Total Days",
-          "Last Check In",
-          "Last Check Out",
-          "Status",
-        ],
-        ...exportReports.map((item) => [
-          item.name || "Unknown",
-          item.fingerprint_id || "--",
-          item.present_days || 0,
-          item.absent_days || 0,
-          item.incomplete_days || 0,
-          item.leave_days || 0,
-          item.holiday_days || 0,
-          item.working_days || 0,
-          item.total_days || 30,
-          item.last_check_in ? formatTime(item.last_check_in) : "--",
-          item.last_check_out ? formatTime(item.last_check_out) : "--",
-          item.status || "--",
-        ]),
+      const summarySheet = workbook.addWorksheet("Summary");
+      const dailySheet = workbook.addWorksheet("Daily Details");
+
+      summarySheet.columns = [
+        { header: "Name", key: "name", width: 24 },
+        { header: "Finger ID", key: "fingerprint_id", width: 14 },
+        { header: "Present", key: "present_days", width: 12 },
+        { header: "Absent", key: "absent_days", width: 12 },
+        { header: "Incomplete", key: "incomplete_days", width: 14 },
+        { header: "Leave", key: "leave_days", width: 12 },
+        { header: "Holiday", key: "holiday_days", width: 12 },
+        { header: "Working Days", key: "working_days", width: 14 },
+        { header: "Total Days", key: "total_days", width: 12 },
+        { header: "Last In", key: "last_check_in", width: 22 },
+        { header: "Last Out", key: "last_check_out", width: 22 },
+        { header: "Status", key: "status", width: 14 },
       ];
 
-      downloadCsv(rows, "attendance-report-30-days.csv");
+      dailySheet.columns = [
+        { header: "Name", key: "name", width: 24 },
+        { header: "Finger ID", key: "fingerprint_id", width: 14 },
+        { header: "Date", key: "date", width: 16 },
+        { header: "Status", key: "status", width: 14 },
+        { header: "In Punch", key: "check_in", width: 22 },
+        { header: "Out Punch", key: "check_out", width: 22 },
+        { header: "Message", key: "message", width: 30 },
+      ];
+
+      summaryRows.forEach((item) => {
+        summarySheet.addRow({
+          name: item.name || "Unknown",
+          fingerprint_id: item.fingerprint_id || "--",
+          present_days: item.present_days || 0,
+          absent_days: item.absent_days || 0,
+          incomplete_days: item.incomplete_days || 0,
+          leave_days: item.leave_days || 0,
+          holiday_days: item.holiday_days || 0,
+          working_days: item.working_days || 0,
+          total_days: item.total_days || 30,
+          last_check_in: item.last_check_in ? formatTime(item.last_check_in) : "--",
+          last_check_out: item.last_check_out ? formatTime(item.last_check_out) : "--",
+          status: item.status || "--",
+        });
+      });
+
+      for (const user of users) {
+        const userId = user.id || user._id;
+
+        if (!userId) continue;
+
+        const calendarRes = await fetch(
+          `${API_URL}/attendance/calendar/${userId}?days=30`
+        );
+        const calendarData = await calendarRes.json();
+
+        if (!Array.isArray(calendarData)) continue;
+
+        calendarData.forEach((day) => {
+          dailySheet.addRow({
+            name: user.name || "Unknown",
+            fingerprint_id: user.fingerprint_id || "--",
+            date: day.date || "--",
+            status: formatStatus(day),
+            check_in: day.check_in ? formatTime(day.check_in) : "--",
+            check_out: day.check_out ? formatTime(day.check_out) : "--",
+            message: day.message || "--",
+          });
+        });
+      }
+
+      styleHeader(summarySheet);
+      styleHeader(dailySheet);
+
+      summarySheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+
+        row.height = 22;
+
+        row.eachCell((cell) => {
+          styleCellBorder(cell);
+        });
+
+        row.getCell("present_days").fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFDCFCE7" },
+        };
+
+        row.getCell("absent_days").fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFFEE2E2" },
+        };
+
+        row.getCell("incomplete_days").fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFFEF3C7" },
+        };
+
+        row.getCell("leave_days").fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFE0F2FE" },
+        };
+
+        row.getCell("holiday_days").fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFF3E8FF" },
+        };
+      });
+
+      dailySheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return;
+
+        row.height = 22;
+
+        const status = String(row.getCell("status").value || "");
+        const fillColor = getExcelStatusColor(status);
+
+        row.eachCell((cell) => {
+          styleCellBorder(cell);
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: fillColor },
+          };
+        });
+      });
+
+      summarySheet.views = [{ state: "frozen", ySplit: 1 }];
+      dailySheet.views = [{ state: "frozen", ySplit: 1 }];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = "attendance-report-30-days.xlsx";
+      link.click();
+
+      URL.revokeObjectURL(url);
     } catch (error) {
-      console.log("Export CSV error:", error);
+      console.log("Excel export error:", error);
+      Alert.alert("Error", "Excel report export failed");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -338,9 +499,19 @@ export default function ReportsScreen() {
           />
         </View>
 
-        <TouchableOpacity style={styles.exportBtn} onPress={exportCSV}>
-          <Ionicons name="download-outline" size={18} color="#052e16" />
-          <Text style={styles.exportText}>Export 30 Days CSV</Text>
+        <TouchableOpacity
+          style={[styles.exportBtn, exporting && styles.disabledBtn]}
+          onPress={exportExcel}
+          disabled={exporting}
+        >
+          {exporting ? (
+            <ActivityIndicator color="#052e16" />
+          ) : (
+            <>
+              <Ionicons name="download-outline" size={18} color="#052e16" />
+              <Text style={styles.exportText}>Export Excel Report</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         <Text style={styles.noteText}>
@@ -643,6 +814,10 @@ const styles = StyleSheet.create({
   exportText: {
     color: "#052e16",
     fontWeight: "bold",
+  },
+
+  disabledBtn: {
+    opacity: 0.6,
   },
 
   noteText: {
