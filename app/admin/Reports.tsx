@@ -40,6 +40,8 @@ export default function ReportsScreen() {
       setReports(Array.isArray(reportData) ? reportData : []);
     } catch (error) {
       console.log("Reports error:", error);
+      setStats(null);
+      setReports([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -64,6 +66,9 @@ export default function ReportsScreen() {
   const totalEmployees = Number(stats?.total_employees || 0);
   const presentToday = Number(stats?.present_today || 0);
   const absentToday = Number(stats?.absent_today || 0);
+  const leaveToday = Number(stats?.leave_today || 0);
+  const holidayToday = Boolean(stats?.holiday_today);
+
   const attendanceRate =
     totalEmployees > 0 ? Math.round((presentToday / totalEmployees) * 100) : 0;
 
@@ -94,37 +99,14 @@ export default function ReportsScreen() {
     });
   };
 
-  const exportCSV = async () => {
-    const rows = [
-      [
-        "Name",
-        "Fingerprint ID",
-        "Present Days",
-        "Absent Days",
-        "Total Days",
-        "Last Check In",
-        "Last Check Out",
-      ],
-      ...filteredReports.map((item) => [
-        item.name || "Unknown",
-        item.fingerprint_id || "--",
-        item.present_days || 0,
-        item.absent_days || 0,
-        item.total_days || range,
-        item.last_check_in ? formatTime(item.last_check_in) : "--",
-        item.last_check_out ? formatTime(item.last_check_out) : "--",
-      ]),
-    ];
-
+  const downloadCsv = (rows: any[][], fileName: string) => {
     const csv = rows
       .map((row) =>
         row
-          .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
+          .map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`)
           .join(",")
       )
       .join("\n");
-
-    const fileName = `attendance-report-${range}-days.csv`;
 
     if (Platform.OS === "web") {
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -139,10 +121,56 @@ export default function ReportsScreen() {
       return;
     }
 
-    await Share.share({
+    Share.share({
       title: "Attendance Report",
       message: csv,
     });
+  };
+
+  const exportCSV = async () => {
+    try {
+      const reportRes = await fetch(
+        `${API_URL}/reports/attendance-summary?days=30`
+      );
+      const reportData = await reportRes.json();
+
+      const exportReports = Array.isArray(reportData) ? reportData : [];
+
+      const rows = [
+        [
+          "Name",
+          "Fingerprint ID",
+          "Present Days",
+          "Absent Days",
+          "Incomplete Days",
+          "Leave Days",
+          "Holiday Days",
+          "Working Days",
+          "Total Days",
+          "Last Check In",
+          "Last Check Out",
+          "Status",
+        ],
+        ...exportReports.map((item) => [
+          item.name || "Unknown",
+          item.fingerprint_id || "--",
+          item.present_days || 0,
+          item.absent_days || 0,
+          item.incomplete_days || 0,
+          item.leave_days || 0,
+          item.holiday_days || 0,
+          item.working_days || 0,
+          item.total_days || 30,
+          item.last_check_in ? formatTime(item.last_check_in) : "--",
+          item.last_check_out ? formatTime(item.last_check_out) : "--",
+          item.status || "--",
+        ]),
+      ];
+
+      downloadCsv(rows, "attendance-report-30-days.csv");
+    } catch (error) {
+      console.log("Export CSV error:", error);
+    }
   };
 
   const RangeButton = ({ label, value }: { label: string; value: RangeType }) => {
@@ -181,6 +209,21 @@ export default function ReportsScreen() {
     </View>
   );
 
+  const MiniBox = ({
+    label,
+    value,
+    color,
+  }: {
+    label: string;
+    value: string | number;
+    color: string;
+  }) => (
+    <View style={styles.statBox}>
+      <Text style={[styles.boxNumber, { color }]}>{value}</Text>
+      <Text style={styles.boxLabel}>{label}</Text>
+    </View>
+  );
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -212,15 +255,23 @@ export default function ReportsScreen() {
 
         <View style={styles.heroCard}>
           <View>
-            <Text style={styles.heroLabel}>Today Attendance</Text>
-            <Text style={styles.heroNumber}>{attendanceRate}%</Text>
+            <Text style={styles.heroLabel}>
+              {holidayToday ? "Holiday Today" : "Today Attendance"}
+            </Text>
+            <Text style={styles.heroNumber}>
+              {holidayToday ? "OFF" : `${attendanceRate}%`}
+            </Text>
             <Text style={styles.heroSub}>
-              {presentToday} present, {absentToday} absent
+              {presentToday} present, {absentToday} absent, {leaveToday} leave
             </Text>
           </View>
 
           <View style={styles.heroCircle}>
-            <Ionicons name="analytics-outline" size={34} color="#052e16" />
+            <Ionicons
+              name={holidayToday ? "calendar-clear-outline" : "analytics-outline"}
+              size={34}
+              color="#052e16"
+            />
           </View>
         </View>
 
@@ -247,6 +298,29 @@ export default function ReportsScreen() {
           />
         </View>
 
+        <View style={styles.statsRow}>
+          <StatCard
+            label="On Leave"
+            value={leaveToday}
+            icon="document-text-outline"
+            color="#f59e0b"
+          />
+
+          <StatCard
+            label="Holiday"
+            value={holidayToday ? "Yes" : "No"}
+            icon="calendar-clear-outline"
+            color="#a78bfa"
+          />
+
+          <StatCard
+            label="Rate"
+            value={`${attendanceRate}%`}
+            icon="trending-up-outline"
+            color="#22c55e"
+          />
+        </View>
+
         <View style={styles.rangeRow}>
           <RangeButton label="7 Days" value={7} />
           <RangeButton label="30 Days" value={30} />
@@ -266,8 +340,12 @@ export default function ReportsScreen() {
 
         <TouchableOpacity style={styles.exportBtn} onPress={exportCSV}>
           <Ionicons name="download-outline" size={18} color="#052e16" />
-          <Text style={styles.exportText}>Export CSV</Text>
+          <Text style={styles.exportText}>Export 30 Days CSV</Text>
         </TouchableOpacity>
+
+        <Text style={styles.noteText}>
+          Incomplete means in punch exists but out punch is missing. It is counted as absent.
+        </Text>
 
         <Text style={styles.sectionTitle}>
           Employee Summary ({filteredReports.length})
@@ -278,16 +356,26 @@ export default function ReportsScreen() {
             <Ionicons name="document-text-outline" size={34} color="#64748b" />
             <Text style={styles.emptyTitle}>No report found</Text>
             <Text style={styles.emptyText}>
-              Search ya range change karke dobara try karo.
+              Try changing the search or report range.
             </Text>
           </View>
         ) : (
           filteredReports.map((item) => {
             const totalDays = Number(item.total_days || range);
+            const workingDays = Number(item.working_days || totalDays);
             const presentDays = Number(item.present_days || 0);
             const absentDays = Number(item.absent_days || 0);
+            const incompleteDays = Number(item.incomplete_days || 0);
+            const leaveDays = Number(item.leave_days || 0);
+            const holidayDays = Number(item.holiday_days || 0);
+
             const percent =
-              totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : 0;
+              workingDays > 0
+                ? Math.round((presentDays / workingDays) * 100)
+                : 0;
+
+            const statusColor =
+              percent >= 80 ? "#22c55e" : percent >= 50 ? "#f59e0b" : "#ef4444";
 
             return (
               <View key={item.user_id} style={styles.reportCard}>
@@ -308,39 +396,37 @@ export default function ReportsScreen() {
                   <View
                     style={[
                       styles.badge,
-                      { backgroundColor: percent > 0 ? "#dcfce7" : "#fee2e2" },
+                      { backgroundColor: `${statusColor}22` },
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.badgeText,
-                        { color: percent > 0 ? "#166534" : "#991b1b" },
-                      ]}
-                    >
+                    <Text style={[styles.badgeText, { color: statusColor }]}>
                       {percent}%
                     </Text>
                   </View>
                 </View>
 
                 <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${percent}%` }]} />
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: `${Math.min(percent, 100)}%`,
+                        backgroundColor: statusColor,
+                      },
+                    ]}
+                  />
                 </View>
 
                 <View style={styles.row}>
-                  <View style={styles.statBox}>
-                    <Text style={styles.boxNumber}>{presentDays}</Text>
-                    <Text style={styles.boxLabel}>Present</Text>
-                  </View>
+                  <MiniBox label="Present" value={presentDays} color="#22c55e" />
+                  <MiniBox label="Absent" value={absentDays} color="#ef4444" />
+                  <MiniBox label="Incomplete" value={incompleteDays} color="#f59e0b" />
+                </View>
 
-                  <View style={styles.statBox}>
-                    <Text style={styles.boxNumber}>{absentDays}</Text>
-                    <Text style={styles.boxLabel}>Absent</Text>
-                  </View>
-
-                  <View style={styles.statBox}>
-                    <Text style={styles.boxNumber}>{totalDays}</Text>
-                    <Text style={styles.boxLabel}>Days</Text>
-                  </View>
+                <View style={styles.row}>
+                  <MiniBox label="Leave" value={leaveDays} color="#38bdf8" />
+                  <MiniBox label="Holiday" value={holidayDays} color="#a78bfa" />
+                  <MiniBox label="Working" value={workingDays} color="#fff" />
                 </View>
 
                 <View style={styles.timeBox}>
@@ -555,6 +641,13 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
 
+  noteText: {
+    color: "#94a3b8",
+    fontSize: 12,
+    marginTop: 10,
+    lineHeight: 18,
+  },
+
   sectionTitle: {
     color: "#fff",
     fontSize: 18,
@@ -629,67 +722,4 @@ const styles = StyleSheet.create({
 
   row: {
     flexDirection: "row",
-    marginTop: 14,
-    gap: 8,
-  },
-
-  statBox: {
-    flex: 1,
-    backgroundColor: "#0f172a",
-    borderRadius: 12,
-    padding: 10,
-    alignItems: "center",
-  },
-
-  boxNumber: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#fff",
-  },
-
-  boxLabel: {
-    fontSize: 11,
-    color: "#94a3b8",
-    marginTop: 3,
-    textAlign: "center",
-  },
-
-  timeBox: {
-    marginTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#334155",
-    paddingTop: 10,
-    gap: 5,
-  },
-
-  timeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-
-  timeText: {
-    color: "#cbd5e1",
-    fontSize: 12,
-  },
-
-  emptyBox: {
-    backgroundColor: "#1e293b",
-    padding: 24,
-    borderRadius: 18,
-    alignItems: "center",
-  },
-
-  emptyTitle: {
-    color: "#fff",
-    fontWeight: "bold",
-    marginTop: 10,
-    fontSize: 16,
-  },
-
-  emptyText: {
-    color: "#94a3b8",
-    marginTop: 4,
-    textAlign: "center",
-  },
-});
+    marginTop: 
