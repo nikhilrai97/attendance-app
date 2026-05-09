@@ -23,7 +23,9 @@ const DEFAULT_SETTINGS = {
 };
 
 export default function AttendanceSettings() {
-  const [duplicateMinutes, setDuplicateMinutes] = useState(DEFAULT_SETTINGS.duplicateMinutes);
+  const [duplicateMinutes, setDuplicateMinutes] = useState(
+    DEFAULT_SETTINGS.duplicateMinutes
+  );
   const [reportDays, setReportDays] = useState(DEFAULT_SETTINGS.reportDays);
   const [lateAfter, setLateAfter] = useState(DEFAULT_SETTINGS.lateAfter);
   const [workingHours, setWorkingHours] = useState(DEFAULT_SETTINGS.workingHours);
@@ -43,11 +45,20 @@ export default function AttendanceSettings() {
       setLateAfter(String(data.late_after ?? "10:00"));
       setWorkingHours(String(data.working_hours ?? 8));
     } catch (error) {
-      Alert.alert("Error", "Settings load nahi ho paayi");
+      Alert.alert("Error", "Unable to load attendance settings");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  };
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadSettings();
   };
 
   const validateSettings = () => {
@@ -56,22 +67,29 @@ export default function AttendanceSettings() {
     const hours = Number(workingHours);
 
     if (!duplicateMinutes || duplicate <= 0) {
-      Alert.alert("Invalid", "Duplicate punch minutes 1 se zyada hona chahiye");
+      Alert.alert("Invalid", "Duplicate punch minutes must be greater than 0");
       return false;
     }
 
     if (!reportDays || reports <= 0) {
-      Alert.alert("Invalid", "Report days 1 se zyada hona chahiye");
+      Alert.alert("Invalid", "Report days must be greater than 0");
       return false;
     }
 
     if (!workingHours || hours <= 0 || hours > 24) {
-      Alert.alert("Invalid", "Working hours 1 se 24 ke beech hona chahiye");
+      Alert.alert("Invalid", "Working hours must be between 1 and 24");
       return false;
     }
 
     if (!/^\d{2}:\d{2}$/.test(lateAfter)) {
-      Alert.alert("Invalid", "Late After format HH:MM hona chahiye, jaise 10:00");
+      Alert.alert("Invalid", "Late After must be in HH:MM format, for example 10:00");
+      return false;
+    }
+
+    const [hour, minute] = lateAfter.split(":").map(Number);
+
+    if (hour > 23 || minute > 59) {
+      Alert.alert("Invalid", "Late After must be a valid time");
       return false;
     }
 
@@ -100,7 +118,7 @@ export default function AttendanceSettings() {
       const data = await res.json();
 
       if (!res.ok) {
-        Alert.alert("Error", data.detail || "Settings save nahi hui");
+        Alert.alert("Error", data.detail || "Unable to save settings");
         return;
       }
 
@@ -111,17 +129,12 @@ export default function AttendanceSettings() {
       });
 
       setLastSaved(savedAt);
-      Alert.alert("Success", "Settings save ho gayi");
+      Alert.alert("Success", "Settings saved successfully");
     } catch (error) {
-      Alert.alert("Error", "Server se connection nahi ho paaya");
+      Alert.alert("Error", "Unable to connect to server");
     } finally {
       setSaving(false);
     }
-  };
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadSettings();
   };
 
   const applyPreset = (type: "strict" | "normal" | "flexible") => {
@@ -153,10 +166,6 @@ export default function AttendanceSettings() {
     setLateAfter(DEFAULT_SETTINGS.lateAfter);
     setWorkingHours(DEFAULT_SETTINGS.workingHours);
   };
-
-  useEffect(() => {
-    loadSettings();
-  }, []);
 
   const SettingCard = ({
     icon,
@@ -248,23 +257,32 @@ export default function AttendanceSettings() {
         <Text style={styles.sectionTitle}>Quick Presets</Text>
 
         <View style={styles.presetRow}>
-          <TouchableOpacity style={styles.presetBtn} onPress={() => applyPreset("strict")}>
+          <TouchableOpacity
+            style={styles.presetBtn}
+            onPress={() => applyPreset("strict")}
+          >
             <Text style={styles.presetTitle}>Strict</Text>
-            <Text style={styles.presetText}>30m</Text>
+            <Text style={styles.presetText}>30m duplicate</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.presetBtnActive} onPress={() => applyPreset("normal")}>
+          <TouchableOpacity
+            style={styles.presetBtnActive}
+            onPress={() => applyPreset("normal")}
+          >
             <Text style={styles.presetTitleActive}>Normal</Text>
-            <Text style={styles.presetTextActive}>60m</Text>
+            <Text style={styles.presetTextActive}>60m duplicate</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.presetBtn} onPress={() => applyPreset("flexible")}>
+          <TouchableOpacity
+            style={styles.presetBtn}
+            onPress={() => applyPreset("flexible")}
+          >
             <Text style={styles.presetTitle}>Flexible</Text>
-            <Text style={styles.presetText}>90m</Text>
+            <Text style={styles.presetText}>90m duplicate</Text>
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.sectionTitle}>Rules</Text>
+        <Text style={styles.sectionTitle}>Attendance Rules</Text>
 
         <SettingCard
           icon="repeat-outline"
@@ -274,7 +292,7 @@ export default function AttendanceSettings() {
           onChangeText={setDuplicateMinutes}
           keyboardType="numeric"
           placeholder="60"
-          help="Itne minutes ke andar second punch duplicate mana jayega."
+          help="Second punch inside this time window will be treated as duplicate."
         />
 
         <SettingCard
@@ -285,7 +303,7 @@ export default function AttendanceSettings() {
           onChangeText={setReportDays}
           keyboardType="numeric"
           placeholder="30"
-          help="Reports me last kitne din ka data dikhana hai."
+          help="Default number of days used for attendance reports."
         />
 
         <SettingCard
@@ -295,7 +313,7 @@ export default function AttendanceSettings() {
           value={lateAfter}
           onChangeText={setLateAfter}
           placeholder="10:00"
-          help="Is time ke baad punch late mana jayega. Format: HH:MM."
+          help="Punch after this time can be treated as late. Format: HH:MM."
         />
 
         <SettingCard
@@ -306,8 +324,18 @@ export default function AttendanceSettings() {
           onChangeText={setWorkingHours}
           keyboardType="numeric"
           placeholder="8"
-          help="Daily expected working hours."
+          help="Expected working hours for one completed workday."
         />
+
+        <View style={styles.infoCard}>
+          <Ionicons name="information-circle-outline" size={22} color="#38bdf8" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.infoTitle}>Report Logic</Text>
+            <Text style={styles.infoText}>
+              If a user has only in punch and no out punch on the same date, that day is counted as absent and marked incomplete.
+            </Text>
+          </View>
+        </View>
 
         {lastSaved ? (
           <Text style={styles.savedText}>Last saved at {lastSaved}</Text>
@@ -464,6 +492,7 @@ const styles = StyleSheet.create({
   presetText: {
     color: "#94a3b8",
     marginTop: 4,
+    fontSize: 12,
   },
 
   presetTitleActive: {
@@ -475,6 +504,7 @@ const styles = StyleSheet.create({
     color: "#14532d",
     marginTop: 4,
     fontWeight: "600",
+    fontSize: 12,
   },
 
   card: {
@@ -520,10 +550,32 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
+  infoCard: {
+    backgroundColor: "#1e293b",
+    borderRadius: 18,
+    padding: 15,
+    flexDirection: "row",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "#334155",
+  },
+
+  infoTitle: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+
+  infoText: {
+    color: "#94a3b8",
+    marginTop: 4,
+    lineHeight: 18,
+    fontSize: 12,
+  },
+
   savedText: {
     color: "#94a3b8",
     textAlign: "center",
-    marginTop: 4,
+    marginTop: 14,
   },
 
   actionRow: {
