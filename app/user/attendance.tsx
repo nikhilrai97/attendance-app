@@ -35,16 +35,6 @@ export default function Attendance() {
     );
   };
 
-  const isThisMonth = (dateValue: string) => {
-    const date = new Date(dateValue);
-    const today = new Date();
-
-    return (
-      date.getMonth() === today.getMonth() &&
-      date.getFullYear() === today.getFullYear()
-    );
-  };
-
   const formatDate = (value: string | null) => {
     if (!value) return "--";
 
@@ -66,10 +56,10 @@ export default function Attendance() {
   };
 
   const getDiffMs = (inTime: string | null, outTime: string | null) => {
-    if (!inTime) return 0;
+    if (!inTime || !outTime) return 0;
 
     const start = new Date(inTime);
-    const end = outTime ? new Date(outTime) : new Date();
+    const end = new Date(outTime);
     const diff = end.getTime() - start.getTime();
 
     return diff > 0 ? diff : 0;
@@ -94,18 +84,13 @@ export default function Attendance() {
         return;
       }
 
-      const res = await fetch(`${API_URL}/attendance/${userId}`);
+      const res = await fetch(`${API_URL}/attendance/calendar/${userId}?days=30`);
       const data = await res.json();
 
       if (Array.isArray(data)) {
-        const sorted = data.sort(
-          (a, b) =>
-            new Date(b.check_in).getTime() - new Date(a.check_in).getTime()
-        );
+        setRecords(data);
 
-        setRecords(sorted);
-
-        const today = sorted.find((item) => item.check_in && isToday(item.check_in));
+        const today = data.find((item) => item.date && isToday(item.date));
         setTodayRecord(today || null);
       } else {
         setRecords([]);
@@ -128,38 +113,53 @@ export default function Attendance() {
     loadAttendance();
   };
 
-  const todayStatus = todayRecord
-    ? todayRecord.check_out
-      ? "Completed"
-      : "Working"
-    : "Absent";
+  const getDisplayStatus = (item: any) => {
+    if (!item) return "Absent";
 
-  const statusColor = todayRecord
-    ? todayRecord.check_out
-      ? "#22c55e"
-      : "#f59e0b"
-    : "#ef4444";
+    if (item.status === "completed") return "Present";
+    if (item.status === "leave") return "Leave";
+    if (item.status === "holiday") return "Holiday";
 
-  const monthRecords = useMemo(
-    () => records.filter((item) => item.check_in && isThisMonth(item.check_in)),
-    [records]
+    return "Absent";
+  };
+
+  const getStatusColor = (status: string) => {
+    if (status === "completed") return "#22c55e";
+    if (status === "leave") return "#38bdf8";
+    if (status === "holiday") return "#a78bfa";
+    return "#ef4444";
+  };
+
+  const getStatusIcon = (status: string) => {
+    if (status === "completed") return "checkmark-circle";
+    if (status === "leave") return "document-text";
+    if (status === "holiday") return "calendar-clear";
+    return "close-circle";
+  };
+
+  const todayStatus = getDisplayStatus(todayRecord);
+  const statusColor = getStatusColor(todayRecord?.status || "absent");
+
+  const todayMs = getDiffMs(
+    todayRecord?.check_in || null,
+    todayRecord?.check_out || null
   );
 
-  const presentDays = new Set(
-    monthRecords.map((item) => new Date(item.check_in).toDateString())
-  ).size;
-
-  const completedDays = monthRecords.filter((item) => item.check_out).length;
-
-  const todayMs = getDiffMs(todayRecord?.check_in || null, todayRecord?.check_out || null);
   const todayHours = todayMs / 3600000;
   const progress = Math.min((todayHours / EXPECTED_HOURS) * 100, 100);
 
-  const totalMonthMs = monthRecords.reduce((sum, item) => {
+  const presentDays = records.filter((item) => item.status === "completed").length;
+  const absentDays = records.filter((item) => item.status === "absent").length;
+  const leaveDays = records.filter((item) => item.status === "leave").length;
+  const holidayDays = records.filter((item) => item.status === "holiday").length;
+
+  const totalMonthMs = records.reduce((sum, item) => {
     return sum + getDiffMs(item.check_in, item.check_out);
   }, 0);
 
   const totalMonthHours = Math.floor(totalMonthMs / 3600000);
+
+  const recentRecords = useMemo(() => records.slice(0, 30), [records]);
 
   if (loading) {
     return (
@@ -196,11 +196,14 @@ export default function Attendance() {
             <Text style={[styles.heroStatus, { color: statusColor }]}>
               {todayStatus}
             </Text>
+            <Text style={styles.heroMessage}>
+              {todayRecord?.message || "No punch"}
+            </Text>
           </View>
 
           <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
             <Ionicons
-              name={todayRecord?.check_out ? "checkmark" : todayRecord ? "time" : "close"}
+              name={getStatusIcon(todayRecord?.status || "absent")}
               size={18}
               color="#0f172a"
             />
@@ -211,6 +214,7 @@ export default function Attendance() {
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${progress}%` }]} />
           </View>
+
           <Text style={styles.progressText}>
             {workHours(todayRecord?.check_in || null, todayRecord?.check_out || null)} / {EXPECTED_HOURS}h
           </Text>
@@ -220,13 +224,17 @@ export default function Attendance() {
           <View style={styles.punchBox}>
             <Ionicons name="log-in-outline" size={22} color="#22c55e" />
             <Text style={styles.punchLabel}>In Punch</Text>
-            <Text style={styles.punchTime}>{formatTime(todayRecord?.check_in || null)}</Text>
+            <Text style={styles.punchTime}>
+              {formatTime(todayRecord?.check_in || null)}
+            </Text>
           </View>
 
           <View style={styles.punchBox}>
             <Ionicons name="log-out-outline" size={22} color="#fb923c" />
             <Text style={styles.punchLabel}>Out Punch</Text>
-            <Text style={styles.punchTime}>{formatTime(todayRecord?.check_out || null)}</Text>
+            <Text style={styles.punchTime}>
+              {formatTime(todayRecord?.check_out || null)}
+            </Text>
           </View>
         </View>
       </View>
@@ -234,68 +242,92 @@ export default function Attendance() {
       <View style={styles.statsGrid}>
         <View style={styles.statCard}>
           <Text style={styles.statNumber}>{presentDays}</Text>
-          <Text style={styles.statLabel}>Present Days</Text>
+          <Text style={styles.statLabel}>Present</Text>
         </View>
 
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{completedDays}</Text>
-          <Text style={styles.statLabel}>Completed</Text>
+          <Text style={styles.statNumber}>{absentDays}</Text>
+          <Text style={styles.statLabel}>Absent</Text>
         </View>
 
         <View style={styles.statCard}>
           <Text style={styles.statNumber}>{totalMonthHours}h</Text>
-          <Text style={styles.statLabel}>Month Hours</Text>
+          <Text style={styles.statLabel}>Hours</Text>
         </View>
       </View>
 
-      <Text style={styles.sectionTitle}>Recent Records</Text>
+      <View style={styles.statsGrid}>
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{leaveDays}</Text>
+          <Text style={styles.statLabel}>Leave</Text>
+        </View>
 
-      {records.length === 0 ? (
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{holidayDays}</Text>
+          <Text style={styles.statLabel}>Holiday</Text>
+        </View>
+
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{records.length}</Text>
+          <Text style={styles.statLabel}>Days</Text>
+        </View>
+      </View>
+
+      <Text style={styles.sectionTitle}>Last 30 Days</Text>
+
+      {recentRecords.length === 0 ? (
         <View style={styles.emptyBox}>
           <Ionicons name="calendar-clear-outline" size={30} color="#64748b" />
           <Text style={styles.emptyTitle}>No attendance found</Text>
-          <Text style={styles.emptyText}>Your fingerprint punches will appear here.</Text>
+          <Text style={styles.emptyText}>Your attendance records will appear here.</Text>
         </View>
       ) : (
-        records.map((item) => (
-          <View key={item.id} style={styles.recordCard}>
-            <View style={styles.dateBox}>
-              <Text style={styles.dateDay}>
-                {item.check_in ? new Date(item.check_in).getDate() : "--"}
-              </Text>
-              <Text style={styles.dateMonth}>
-                {item.check_in
-                  ? new Date(item.check_in).toLocaleDateString("en-IN", { month: "short" })
-                  : "--"}
-              </Text>
+        recentRecords.map((item) => {
+          const itemStatus = item.status || "absent";
+          const itemColor = getStatusColor(itemStatus);
+          const itemIcon = getStatusIcon(itemStatus);
+
+          return (
+            <View key={item.id} style={styles.recordCard}>
+              <View style={styles.dateBox}>
+                <Text style={styles.dateDay}>
+                  {item.date ? new Date(item.date).getDate() : "--"}
+                </Text>
+
+                <Text style={styles.dateMonth}>
+                  {item.date
+                    ? new Date(item.date).toLocaleDateString("en-IN", { month: "short" })
+                    : "--"}
+                </Text>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={styles.recordDate}>{formatDate(item.date)}</Text>
+
+                <Text style={styles.recordTime}>
+                  {formatTime(item.check_in)} - {formatTime(item.check_out)}
+                </Text>
+
+                <Text style={[styles.recordHours, { color: itemColor }]}>
+                  {getDisplayStatus(item)} • {item.message || workHours(item.check_in, item.check_out)}
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.recordIcon,
+                  { backgroundColor: `${itemColor}22` },
+                ]}
+              >
+                <Ionicons
+                  name={itemIcon}
+                  size={22}
+                  color={itemColor}
+                />
+              </View>
             </View>
-
-            <View style={{ flex: 1 }}>
-              <Text style={styles.recordDate}>{formatDate(item.check_in)}</Text>
-
-              <Text style={styles.recordTime}>
-                {formatTime(item.check_in)} - {formatTime(item.check_out)}
-              </Text>
-
-              <Text style={styles.recordHours}>
-                {workHours(item.check_in, item.check_out)}
-              </Text>
-            </View>
-
-            <View
-              style={[
-                styles.recordIcon,
-                { backgroundColor: item.check_out ? "#dcfce7" : "#fef3c7" },
-              ]}
-            >
-              <Ionicons
-                name={item.check_out ? "checkmark-circle" : "time"}
-                size={22}
-                color={item.check_out ? "#16a34a" : "#d97706"}
-              />
-            </View>
-          </View>
-        ))
+          );
+        })
       )}
     </ScrollView>
   );
@@ -375,6 +407,11 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "bold",
     marginTop: 3,
+  },
+
+  heroMessage: {
+    color: "#94a3b8",
+    marginTop: 4,
   },
 
   statusBadge: {
@@ -529,7 +566,6 @@ const styles = StyleSheet.create({
   },
 
   recordHours: {
-    color: "#22c55e",
     marginTop: 4,
     fontWeight: "bold",
   },
